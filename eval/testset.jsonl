@@ -1,0 +1,8 @@
+{"q":"什么是 ReAct 范式?","keywords":["思考","行动","Thought","Action"]}
+{"q":"RAG 解决了什么问题?","keywords":["幻觉","检索","文档"]}
+{"q":"LangGraph 里 有环和无环 的区别是什么?","keywords":["循环","环","DAG"]}
+{"q":"Agent 为什么需要最大步数限制?","keywords":["熔断","无限","步数","停止"]}
+{"q":"Context Window 太长会有什么问题?","keywords":["稀释","成本","注意力","超"]}
+{"q":"三层记忆是哪三层?","keywords":["短期","长期","外部"]}
+{"q":"Function Calling 里 LLM 真的执行工具了吗?","keywords":["不执行","代码","调用意图","结构化"]}
+{"q":"多 Agent 协作的 Supervisor 模式是什么?","keywords":["主管","分发","交接","汇总"]}

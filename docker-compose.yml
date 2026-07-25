@@ -1,0 +1,41 @@
+# 个人知识库 - 基础设施一键起
+# 用法:
+#   1. 复制 .env.example 为 .env,填好 key
+#   2. docker compose up -d qdrant                 # 起向量库(必需)
+#   3. (可选) docker compose up -d langfuse langfuse-db   # 自托管 trace(较重;或直接用云 key)
+#   4. docker compose down                          # 停服务(数据保留);down -v 删数据慎用
+
+services:
+  # ---------- 向量库(必需) ----------
+  qdrant:
+    image: qdrant/qdrant:v1.12.4        # 固定版本,别用 latest
+    container_name: kb-qdrant
+    ports:
+      - "6333:6333"                     # REST API(各模块连这个)
+      - "6334:6334"                     # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage     # 数据持久化,容器删了还在
+    restart: unless-stopped
+
+  # ---------- 可观测(可选,自托管较重;建议先用 Langfuse 云:在 .env 填 LANGFUSE_HOST/KEY 即可) ----------
+  # langfuse:
+  #   image: langfuse/langfuse:2
+  #   container_name: kb-langfuse
+  #   ports: ["3000:3000"]
+  #   environment:
+  #     DATABASE_URL: postgresql://lf:lf@langfuse-db:5432/lf
+  #     NEXTAUTH_SECRET: changeme_nextauth
+  #     SALT: changeme_salt
+  #   depends_on: [langfuse-db]
+  # langfuse-db:
+  #   image: postgres:16
+  #   environment:
+  #     POSTGRES_USER: lf
+  #     POSTGRES_PASSWORD: lf
+  #     POSTGRES_DB: lf
+  #   volumes: [langfuse_db_data:/var/lib/postgresql/data]
+
+# ---------- 命名数据卷(持久化) ----------
+volumes:
+  qdrant_data:
+  # langfuse_db_data:

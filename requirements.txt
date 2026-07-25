@@ -1,0 +1,17 @@
+langchain-core>=0.3
+langchain-openai>=0.2
+langgraph>=0.2
+langgraph-checkpoint-sqlite>=2.0
+openai>=1.0
+dashscope>=1.20
+qdrant-client>=1.12
+pydantic>=2.0
+python-dotenv>=1.0
+tenacity>=8.0
+langfuse>=2.0
+mcp>=1.0
+fastapi>=0.115
+uvicorn>=0.30
+pytest>=8.0
+numpy>=1.26
+jieba>=0.42
