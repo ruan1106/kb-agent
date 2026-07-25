@@ -133,12 +133,13 @@ def seed() -> int:
         os.path.join(repo, "agent-development-concepts.md"),
         os.path.join(repo, "langgraph-state-guide.md"),
     ]
-    # agent/ 下的知识点汇总也是好语料
-    agent_dir = os.path.join(repo, "agent")
-    if os.path.isdir(agent_dir):
-        for fn in sorted(os.listdir(agent_dir)):
-            if fn.endswith("-知识点汇总.md"):
-                targets.append(os.path.join(agent_dir, fn))
+    # agent/ 和 study/ 下的知识点汇总都是好语料
+    for sub in ("agent", "study"):
+        d = os.path.join(repo, sub)
+        if os.path.isdir(d):
+            for fn in sorted(os.listdir(d)):
+                if fn.endswith("-知识点汇总.md"):
+                    targets.append(os.path.join(d, fn))
     # 确保 collection 存在
     vectorstore.ensure_collection()
     n = 0
