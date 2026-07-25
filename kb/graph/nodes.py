@@ -46,23 +46,38 @@ def _decompose(query: str, llm) -> list[str]:
 # ============================================================
 # supervisor:确定性路由
 # ============================================================
+MAX_RETRIEVAL_RETRIES = 2  # 补检最多重试次数,防空库/无效检索死循环
+
+
 def supervisor(state: State) -> dict:
     q = state.get("query") or _user_query(state)
+
+    # 新一轮:当前 query 和上次已处理的 query 不一致 -> 上一轮的 answer/review_passed
+    # 是残留,必须清掉,否则会因 review_passed=True 直接 end、返回旧答案(多轮状态污染)。
+    if q and q != state.get("processed_query"):
+        return {"query": q, "processed_query": q, "retrieved": [], "answer": "",
+                "review_passed": None, "verdict": {}, "retrieval_attempts": 0,
+                "next": "researcher"}
+
     retrieved = state.get("retrieved") or []
     answer = state.get("answer") or ""
     review_passed = state.get("review_passed")
     verdict = state.get("verdict") or {}
+    attempts = state.get("retrieval_attempts", 0)
 
     if review_passed is True:
         nxt = "end"
-    elif verdict.get("need_more_retrieval"):
-        nxt = "researcher"
+    elif answer and review_passed is None:
+        nxt = "reviewer"                       # 有答案未审 -> 审查
+    elif retrieved and not answer:
+        nxt = "writer"                         # 有片段未生成 -> 写答案
+    elif verdict.get("need_more_retrieval") and attempts < MAX_RETRIEVAL_RETRIES:
+        nxt = "researcher"                     # 审查说信息不足,且有重试额度 -> 补检
+    elif not retrieved and not answer:
+        nxt = "writer"                         # 检索为空 -> 让 writer 诚实说"信息不足"
     elif review_passed is False:
-        nxt = "ask_human"
-    elif answer:
-        nxt = "reviewer"
-    elif retrieved:
-        nxt = "writer"
+        # 补检耗尽且只是信息不足(非幻觉/答非所问) -> 诚实结束,不必问人
+        nxt = "end" if (verdict.get("need_more_retrieval") and attempts >= MAX_RETRIEVAL_RETRIES) else "ask_human"
     else:
         nxt = "researcher"
     return {"query": q, "next": nxt}
@@ -100,8 +115,9 @@ def researcher(state: State) -> dict:
         "score": h.get("rerank_score", h.get("score")),
     } for h in ranked]
     print(f"  [researcher] 检索 {len(retrieved)} 条")
-    # 重置下游状态,强制重新生成+审查
-    return {"retrieved": retrieved, "answer": "", "review_passed": None, "verdict": {}}
+    # 重置下游状态,强制重新生成+审查;累计本轮检索次数(供 supervisor 限流)
+    return {"retrieved": retrieved, "answer": "", "review_passed": None, "verdict": {},
+            "retrieval_attempts": state.get("retrieval_attempts", 0) + 1}
 
 
 # ============================================================

@@ -12,8 +12,10 @@ from langgraph.graph.message import add_messages
 class State(TypedDict):
     messages: Annotated[list, add_messages]   # 对话历史(短期记忆,reducer=add_messages)
     query: str                                 # 当前用户问题
+    processed_query: str                       # 已开始处理的 query(用于识别新一轮,防多轮状态污染)
     retrieved: list[dict]                      # 检索到的片段 [{note_id,type,text,score}]
     answer: str                                # 生成的答案
     verdict: dict                              # 审查四道检查结果
     review_passed: bool | None                 # 审查是否通过(True/False/None=未审)
+    retrieval_attempts: int                    # 本轮检索次数(补检重试上限,防空库死循环)
     next: str                                  # supervisor 决定的路由

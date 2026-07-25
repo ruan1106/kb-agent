@@ -46,28 +46,63 @@ def make_client():
 # 1. numpy 迷你版(接口对齐真 Qdrant,教学降级)
 # ============================================================
 class MiniQdrant:
-    """教学降级:用 numpy 实现 collection + payload 过滤 + 向量搜索。"""
+    """教学降级:用 numpy 实现 collection + payload 过滤 + 向量搜索。
 
-    def __init__(self):
+    向量落盘(pickle):降级模式下进程重启不丢向量,否则 /seed 灌的向量一退出就没了,
+    而 SQLite 里笔记元数据还在 -> /seed 见已存在就跳过 -> 永远检索不到。
+    """
+
+    def __init__(self, path: str | None = None):
+        import os
         import numpy as np
         self.np = np
+        self._path = path or os.path.join(
+            os.path.dirname(settings.db_path) or ".", "mini_qdrant.pkl")
         self._collections: dict[str, dict] = {}
+        self._load()
         print("[Qdrant] 使用 numpy 迷尼版(教学降级)")
+
+    def _load(self):
+        import os
+        import pickle
+        if os.path.isfile(self._path):
+            try:
+                with open(self._path, "rb") as f:
+                    self._collections = pickle.load(f)
+                n = sum(len(c["points"]) for c in self._collections.values())
+                print(f"[Qdrant] 迷你版从磁盘载入 {len(self._collections)} 个 collection / {n} 条向量")
+            except Exception as e:
+                print(f"[Qdrant] 迷你版载入失败({e}),从空开始")
+                self._collections = {}
+
+    def _save(self):
+        import os
+        import pickle
+        try:
+            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
+            with open(self._path, "wb") as f:
+                pickle.dump(self._collections, f)
+        except Exception as e:
+            print(f"[Qdrant] 迷你版落盘失败({e})")
 
     def get_collections(self):
         return list(self._collections.keys())
 
     def recreate_collection(self, name, vectors_config, **_):
-        self._collections[name] = {"size": vectors_config["size"], "points": []}
+        if name not in self._collections:
+            self._collections[name] = {"size": vectors_config["size"], "points": []}
+            self._save()
 
     def create_payload_index(self, name, field, field_schema, **_):
         pass  # 迷你版顺序扫描,不需要索引
 
     def upsert(self, name, points, **_):
+        # 按 id 幂等覆盖(重灌同一笔记不产生重复点)
+        by_id = {p["id"]: p for p in self._collections[name]["points"]}
         for p in points:
-            self._collections[name]["points"].append({
-                "id": p.id, "vector": list(p.vector), "payload": p.payload or {},
-            })
+            by_id[p.id] = {"id": p.id, "vector": list(p.vector), "payload": p.payload or {}}
+        self._collections[name]["points"] = list(by_id.values())
+        self._save()
 
     def search(self, name, query_vector, query_filter=None, limit=3, **_):
         np = self.np

@@ -58,33 +58,48 @@ def _extract_pitfall(content: str) -> dict:
 
 def ingest_text(title: str, content: str, note_type: str = "concept",
                 source: str = "manual") -> str:
-    """把一段文本沉淀进知识库。返回 note_id(已存在则去重直接返回)。"""
-    note_id = hashlib.md5(content.encode()).hexdigest()[:16]
-    if storage.note_exists(note_id):
-        print(f"[Ingest] 已存在({note_id}),跳过去重")
-        return note_id
+    """把一段文本沉淀进知识库。返回 note_id。
 
-    tags = _auto_tag(title, content)
-    pitfall = _extract_pitfall(content) if note_type == "pitfall" else {}
-    now = datetime.now().isoformat(timespec="seconds")
+    去重:按内容哈希。已存在则复用 SQLite 元数据(省掉自动打标 LLM 调用,含 tags),
+    但向量仍重新 embed+upsert--降级模式向量在内存/落盘,进程重启可能没载入,
+    必须补上,否则检索永远空。upsert 按 id 幂等覆盖,不产生重复点。
+    """
+    note_id = hashlib.md5(content.encode()).hexdigest()[:16]
+    existing = storage.get_note(note_id)
+
+    if existing:
+        category = existing["category"]
+        tag_list = existing.get("tags", [])
+        summary = existing["summary"]
+        pitfall = existing.get("pitfall", {}) or {}
+        now = existing["created_at"]
+        reused = True
+    else:
+        tags = _auto_tag(title, content)
+        category, tag_list, summary = tags.category, tags.tags, tags.summary
+        pitfall = _extract_pitfall(content) if note_type == "pitfall" else {}
+        now = datetime.now().isoformat(timespec="seconds")
+        reused = False
 
     chunks = chunk_text(content)
     vectors = embedding.embed_texts(chunks)
     points = []
     for i, (ch, vec) in enumerate(zip(chunks, vectors)):
         payload = ChunkPayload(
-            note_id=note_id, type=note_type, category=tags.category, title=title,
-            tags=tags.tags, source=source, chunk_index=i, created_at=now, text=ch,
+            note_id=note_id, type=note_type, category=category, title=title,
+            tags=tag_list, source=source, chunk_index=i, created_at=now, text=ch,
         ).model_dump()
         points.append((f"{note_id}_{i}", vec, payload))
     vectorstore.upsert_chunks(points)
 
-    storage.save_note({
-        "note_id": note_id, "type": note_type, "category": tags.category,
-        "title": title, "source": source, "summary": tags.summary,
-        "created_at": now, "hash": note_id, "pitfall": pitfall,
-    })
-    print(f"[Ingest] 沉淀 {note_type} 笔记 {note_id}({title}),{len(chunks)} 块")
+    if not existing:
+        storage.save_note({
+            "note_id": note_id, "type": note_type, "category": category,
+            "title": title, "source": source, "summary": summary,
+            "created_at": now, "hash": note_id, "pitfall": pitfall, "tags": tag_list,
+        })
+    msg = "复用元数据,补向量" if reused else f"沉淀 {note_type} 笔记"
+    print(f"[Ingest] {msg} {note_id}({title}),{len(chunks)} 块")
     return note_id
 
 

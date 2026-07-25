@@ -42,7 +42,7 @@ def init_db():
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS notes(
         note_id TEXT PRIMARY KEY, type TEXT, category TEXT, title TEXT,
-        source TEXT, summary TEXT, created_at TEXT, hash TEXT, pitfall TEXT);
+        source TEXT, summary TEXT, created_at TEXT, hash TEXT, pitfall TEXT, tags TEXT DEFAULT '[]');
     CREATE TABLE IF NOT EXISTS qa_history(
         id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT,
         question TEXT, answer TEXT, refs TEXT, created_at TEXT);
@@ -52,6 +52,10 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_qa_thread ON qa_history(thread_id);
     CREATE INDEX IF NOT EXISTS idx_facts_thread ON facts(thread_id);
     """)
+    # 迁移:旧库 notes 表可能没有 tags 列
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(notes)")}
+    if "tags" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN tags TEXT DEFAULT '[]'")
     conn.commit()
     conn.close()
     _init_done = True
@@ -99,23 +103,44 @@ def get_persistent_checkpointer():
 def save_note(note: dict):
     with _conn() as c:
         c.execute(
-            "INSERT OR REPLACE INTO notes(note_id,type,category,title,source,summary,created_at,hash,pitfall) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO notes(note_id,type,category,title,source,summary,created_at,hash,pitfall,tags) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
             (note["note_id"], note.get("type", ""), note.get("category", ""), note.get("title", ""),
              note.get("source", ""), note.get("summary", ""), note.get("created_at", ""),
-             note.get("hash", ""), json.dumps(note.get("pitfall", {}), ensure_ascii=False)),
+             note.get("hash", ""), json.dumps(note.get("pitfall", {}), ensure_ascii=False),
+             json.dumps(note.get("tags", []), ensure_ascii=False)),
         )
+
+
+def get_note(note_id: str) -> dict | None:
+    """取单条笔记全字段(含 tags/pitfall,已解析);不存在返回 None。"""
+    with _conn() as c:
+        r = c.execute(
+            "SELECT note_id,type,category,title,source,summary,created_at,hash,pitfall,tags "
+            "FROM notes WHERE note_id=?", (note_id,)).fetchone()
+    if not r:
+        return None
+    try:
+        pitfall = json.loads(r[8]) if r[8] else {}
+    except Exception:
+        pitfall = {}
+    try:
+        tags = json.loads(r[9]) if r[9] else []
+    except Exception:
+        tags = []
+    return {"note_id": r[0], "type": r[1], "category": r[2], "title": r[3], "source": r[4],
+            "summary": r[5], "created_at": r[6], "hash": r[7], "pitfall": pitfall, "tags": tags}
 
 
 def list_notes(note_type: str | None = None) -> list[dict]:
     with _conn() as c:
         if note_type:
             rows = c.execute(
-                "SELECT note_id,type,category,title,source,summary,created_at,pitfall "
+                "SELECT note_id,type,category,title,source,summary,created_at,pitfall,tags "
                 "FROM notes WHERE type=?", (note_type,)).fetchall()
         else:
             rows = c.execute(
-                "SELECT note_id,type,category,title,source,summary,created_at,pitfall "
+                "SELECT note_id,type,category,title,source,summary,created_at,pitfall,tags "
                 "FROM notes").fetchall()
     out = []
     for r in rows:
@@ -123,8 +148,13 @@ def list_notes(note_type: str | None = None) -> list[dict]:
             pitfall = json.loads(r[7]) if r[7] else {}
         except Exception:
             pitfall = {}
+        try:
+            tags = json.loads(r[8]) if r[8] else []
+        except Exception:
+            tags = []
         out.append({"note_id": r[0], "type": r[1], "category": r[2], "title": r[3],
-                    "source": r[4], "summary": r[5], "created_at": r[6], "pitfall": pitfall})
+                    "source": r[4], "summary": r[5], "created_at": r[6],
+                    "pitfall": pitfall, "tags": tags})
     return out
 
 
